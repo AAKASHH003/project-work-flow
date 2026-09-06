@@ -471,17 +471,37 @@
     <p class="footer-tag">Research demo only · Not a diagnostic device</p>
   </div>
 </footer>
+<!-- Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <script>
+const SUPABASE_URL = "https://tvwivemreehaoprervjj.supabase.co";
+
+const SUPABASE_KEY =
+  "sb_publishable_jEZWz0YFRumBZ9I2UcaRWw_vZxhxBWR";
+
+const supabaseClient = supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_KEY
+);
+
+console.log("Supabase connected!");
+</script>
+<script>
 (function(){
+
   function formatSize(bytes){
-    if(bytes < 1024*1024) return (bytes/1024).toFixed(0) + ' KB';
+    if(bytes < 1024*1024) {
+      return (bytes/1024).toFixed(0) + ' KB';
+    }
+
     return (bytes/(1024*1024)).toFixed(1) + ' MB';
   }
 
+
   function setupSlot(item){
+
     const uploadBox   = item.querySelector('.upload-box');
-    const emptyState  = item.querySelector('.upload-empty');
     const chooseBtn   = item.querySelector('.upload-btn');
     const fileInput   = item.querySelector('input[type="file"]');
     const imgEl       = item.querySelector('.upload-box img');
@@ -490,82 +510,447 @@
     const removeBtn   = item.querySelector('.remove-btn');
 
     let objectUrl = null;
+async function uploadImageToSupabase(
+  file,
+  stage,
+  title
+) {
 
-    function loadImage(file){
-      if(!file) return;
-      if(!file.type.startsWith('image/')){
-        meta.textContent = 'That file is not a supported image format.';
-        return;
-      }
-      if(objectUrl){
-        URL.revokeObjectURL(objectUrl);
-      }
-      objectUrl = URL.createObjectURL(file);
-      imgEl.src = objectUrl;
-      uploadBox.classList.add('has-image');
-      meta.innerHTML = '<strong>' + file.name + '</strong> · ' + formatSize(file.size);
-      replaceBtn.disabled = false;
-      removeBtn.disabled = false;
-    }
+  try {
 
-    function clearImage(){
-      if(objectUrl){
-        URL.revokeObjectURL(objectUrl);
-        objectUrl = null;
-      }
-      imgEl.removeAttribute('src');
-      uploadBox.classList.remove('has-image');
-      meta.textContent = 'No image selected yet.';
-      replaceBtn.disabled = true;
-      removeBtn.disabled = true;
-      fileInput.value = '';
-    }
+    const fileName =
+      `${Date.now()}-${file.name}`;
 
-    chooseBtn.addEventListener('click', function(e){
-      e.stopPropagation();
-      fileInput.click();
-    });
-    replaceBtn.addEventListener('click', function(){
-      fileInput.click();
-    });
-    removeBtn.addEventListener('click', clearImage);
 
-    uploadBox.addEventListener('click', function(){
-      if(!uploadBox.classList.contains('has-image')){
-        fileInput.click();
-      }
-    });
+    const filePath =
+      `workflow/stage-${stage}/${fileName}`;
 
-    fileInput.addEventListener('change', function(e){
-      const file = e.target.files && e.target.files[0];
-      loadImage(file);
-    });
 
-    ['dragenter','dragover'].forEach(function(evt){
-      uploadBox.addEventListener(evt, function(e){
-        e.preventDefault();
-        e.stopPropagation();
-        if(!uploadBox.classList.contains('has-image')){
-          uploadBox.classList.add('drag-over');
+    // Upload to Supabase Storage
+
+    const {
+      data: storageData,
+      error: storageError
+    } =
+    await supabaseClient
+      .storage
+      .from('retina-images')
+      .upload(
+        filePath,
+        file,
+        {
+          contentType:
+            file.type,
+
+          upsert: false
         }
+      );
+
+
+    if(storageError){
+
+      throw storageError;
+
+    }
+
+
+    // Get public URL
+
+    const {
+      data: urlData
+    } =
+    supabaseClient
+      .storage
+      .from('retina-images')
+      .getPublicUrl(
+        storageData.path
+      );
+
+
+    const fileUrl =
+      urlData.publicUrl;
+
+
+    // Save metadata to database
+
+    const {
+      error: databaseError
+    } =
+    await supabaseClient
+      .from('uploads')
+      .insert({
+
+        file_name:
+          file.name,
+
+        file_path:
+          storageData.path,
+
+        file_url:
+          fileUrl,
+
+        file_type:
+          'image',
+
+        mime_type:
+          file.type,
+
+        file_size:
+          file.size,
+
+        workflow_stage:
+          Number(stage),
+
+        title:
+          title
+
       });
-    });
-    ['dragleave','drop'].forEach(function(evt){
-      uploadBox.addEventListener(evt, function(e){
-        e.preventDefault();
-        e.stopPropagation();
-        uploadBox.classList.remove('drag-over');
-      });
-    });
-    uploadBox.addEventListener('drop', function(e){
-      const file = e.dataTransfer.files && e.dataTransfer.files[0];
-      loadImage(file);
-    });
+
+
+    if(databaseError){
+
+      throw databaseError;
+
+    }
+
+
+    return {
+
+      path:
+        storageData.path,
+
+      url:
+        fileUrl
+
+    };
+
   }
 
-  document.querySelectorAll('.workflow-item').forEach(setupSlot);
+  catch(error){
+
+    console.error(
+      'Supabase upload error:',
+      error
+    );
+
+    throw error;
+
+  }
+
+}
+
+async function loadImage(file){
+
+  if(!file) return;
+
+
+  if(!file.type.startsWith('image/')){
+
+    meta.textContent =
+      'That file is not a supported image format.';
+
+    return;
+
+  }
+
+
+  // Instant local preview
+
+  if(objectUrl){
+
+    URL.revokeObjectURL(
+      objectUrl
+    );
+
+  }
+
+
+  objectUrl =
+    URL.createObjectURL(file);
+
+
+  imgEl.src =
+    objectUrl;
+
+
+  uploadBox.classList.add(
+    'has-image'
+  );
+
+
+  replaceBtn.disabled = true;
+
+  removeBtn.disabled = true;
+
+
+  meta.textContent =
+    'Uploading to Supabase...';
+
+
+  try{
+
+
+    const stage =
+      item.dataset.slot;
+
+
+    const title =
+      item
+      .querySelector(
+        '.workflow-title'
+      )
+      .textContent;
+
+
+    const result =
+      await uploadImageToSupabase(
+
+        file,
+
+        stage,
+
+        title
+
+      );
+
+
+    meta.innerHTML =
+
+      '<strong>' +
+
+      file.name +
+
+      '</strong> · ' +
+
+      formatSize(file.size) +
+
+      ' · Saved';
+
+
+    replaceBtn.disabled = false;
+
+    removeBtn.disabled = false;
+
+
+    console.log(
+      'Supabase image URL:',
+      result.url
+    );
+
+
+  }
+
+  catch(error){
+
+    console.error(error);
+
+
+    meta.textContent =
+      'Upload failed: ' +
+
+      error.message;
+
+
+    replaceBtn.disabled = false;
+
+    removeBtn.disabled = false;
+
+  }
+
+}
+
+
+    function clearImage(){
+
+      if(objectUrl){
+
+        URL.revokeObjectURL(
+          objectUrl
+        );
+
+        objectUrl =
+          null;
+
+      }
+
+
+      imgEl.removeAttribute(
+        'src'
+      );
+
+
+      uploadBox.classList.remove(
+        'has-image'
+      );
+
+
+      meta.textContent =
+        'No image selected yet.';
+
+
+      replaceBtn.disabled =
+        true;
+
+
+      removeBtn.disabled =
+        true;
+
+
+      fileInput.value =
+        '';
+
+    }
+
+
+    // Choose image button
+    chooseBtn.addEventListener(
+      'click',
+      function(e){
+
+        e.stopPropagation();
+
+        fileInput.click();
+
+      }
+    );
+
+
+    // Replace button
+    replaceBtn.addEventListener(
+      'click',
+      function(){
+
+        fileInput.click();
+
+      }
+    );
+
+
+    // Remove button
+    removeBtn.addEventListener(
+      'click',
+      clearImage
+    );
+
+
+    // Click upload box
+    uploadBox.addEventListener(
+      'click',
+      function(){
+
+        if(
+          !uploadBox.classList.contains(
+            'has-image'
+          )
+        ){
+
+          fileInput.click();
+
+        }
+
+      }
+    );
+
+
+    // File selected
+    fileInput.addEventListener(
+      'change',
+      function(e){
+
+        const file =
+          e.target.files &&
+          e.target.files[0];
+
+
+        loadImage(file);
+
+      }
+    );
+
+
+    // Drag events
+    ['dragenter','dragover'].forEach(
+      function(evt){
+
+        uploadBox.addEventListener(
+          evt,
+          function(e){
+
+            e.preventDefault();
+
+            e.stopPropagation();
+
+
+            if(
+              !uploadBox.classList.contains(
+                'has-image'
+              )
+            ){
+
+              uploadBox.classList.add(
+                'drag-over'
+              );
+
+            }
+
+          }
+        );
+
+      }
+    );
+
+
+    ['dragleave','drop'].forEach(
+      function(evt){
+
+        uploadBox.addEventListener(
+          evt,
+          function(e){
+
+            e.preventDefault();
+
+            e.stopPropagation();
+
+            uploadBox.classList.remove(
+              'drag-over'
+            );
+
+          }
+        );
+
+      }
+    );
+
+
+    // Drop image
+    uploadBox.addEventListener(
+      'drop',
+      function(e){
+
+        const file =
+          e.dataTransfer.files &&
+          e.dataTransfer.files[0];
+
+
+        loadImage(file);
+
+      }
+    );
+
+  }
+
+
+  // Setup all 5 workflow slots
+  document
+    .querySelectorAll(
+      '.workflow-item'
+    )
+    .forEach(
+      setupSlot
+    );
+
+
 })();
 </script>
-
 </body>
 </html>
